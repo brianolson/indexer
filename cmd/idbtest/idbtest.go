@@ -216,7 +216,7 @@ func main() {
 	flag.StringVar(&pgdb, "pg", "dbname=i2b sslmode=disable", "postgres connect string; e.g. \"dbname=foo sslmode=disable\"")
 	flag.Parse()
 
-	db, err := idb.OpenPostgres(pgdb)
+	db, err := idb.OpenPostgres(pgdb, nil)
 	maybeFail(err, "open postgres, %v", err)
 
 	if accounttest {

@@ -95,7 +95,7 @@ func (db *dummyIndexerDb) AssetBalances(ctx context.Context, abq AssetBalanceQue
 
 type IndexerFactory interface {
 	Name() string
-	Build(arg string) (IndexerDb, error)
+	Build(arg string, opts *IndexerDbOptions) (IndexerDb, error)
 }
 
 type TxnRow struct {
@@ -297,7 +297,7 @@ type dummyFactory struct {
 func (df dummyFactory) Name() string {
 	return "dummy"
 }
-func (df dummyFactory) Build(arg string) (IndexerDb, error) {
+func (df dummyFactory) Build(arg string, opts *IndexerDbOptions) (IndexerDb, error) {
 	return &dummyIndexerDb{}, nil
 }
 
@@ -308,10 +308,14 @@ func init() {
 	indexerFactories = append(indexerFactories, &dummyFactory{})
 }
 
-func IndexerDbByName(factoryname, arg string) (IndexerDb, error) {
+type IndexerDbOptions struct {
+	ReadOnly bool
+}
+
+func IndexerDbByName(factoryname, arg string, opts *IndexerDbOptions) (IndexerDb, error) {
 	for _, ifac := range indexerFactories {
 		if ifac.Name() == factoryname {
-			return ifac.Build(arg)
+			return ifac.Build(arg, opts)
 		}
 	}
 	return nil, fmt.Errorf("no IndexerDb factory for %s", factoryname)
