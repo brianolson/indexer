@@ -99,6 +99,9 @@ func AccountAtRound(account models.Account, round uint64, db idb.IndexerDb) (acc
 				assetUpdate(&acct, uint64(stxn.Txn.XferAsset), 0, txnrow.Extra.AssetCloseAmount)
 			}
 		case atypes.AssetFreezeTx:
+			// TODO: mark an asset of the account as frozen or not?
+		case atypes.ApplicationCallTx:
+			// TODO: rewind app state
 		default:
 			panic("unknown txn type")
 		}
