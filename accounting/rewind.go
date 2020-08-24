@@ -35,6 +35,13 @@ func assetUpdate(account *models.Account, assetid uint64, add, sub uint64) {
 	*account.Assets = assets
 }
 
+func appRewind(account *models.Account, txrnow *idb.TxnRow, stxn *types.SignedTxnWithAD) error {
+	// TODO: rewind app state
+	txnrow.TxnExtra.GlobalReverseDelta
+	txnrow.TxnExtra.LocalReverseDelta
+	return nil
+}
+
 func AccountAtRound(account models.Account, round uint64, db idb.IndexerDb) (acct models.Account, err error) {
 	acct = account
 	addr, err := atypes.DecodeAddress(account.Address)
@@ -101,7 +108,10 @@ func AccountAtRound(account models.Account, round uint64, db idb.IndexerDb) (acc
 		case atypes.AssetFreezeTx:
 			// TODO: mark an asset of the account as frozen or not?
 		case atypes.ApplicationCallTx:
-			// TODO: rewind app state
+			err = appRewind(&acct, &txnrow, &stxn)
+			if err != nil {
+				return
+			}
 		default:
 			panic("unknown txn type")
 		}
