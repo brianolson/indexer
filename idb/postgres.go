@@ -11,6 +11,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -1595,7 +1596,7 @@ func (db *PostgresIndexerDb) yieldAccountsThread(ctx context.Context, opts Accou
 				account.Participation = part
 			}
 
-			if ! ad.SpendingKey.IsZero() {
+			if !ad.SpendingKey.IsZero() {
 				var spendingkey atypes.Address
 				copy(spendingkey[:], ad.SpendingKey[:])
 				account.AuthAddr = stringPtr(spendingkey.String())
@@ -2279,6 +2280,33 @@ func (db *PostgresIndexerDb) yieldApplicationsThread(ctx context.Context, rows *
 		out <- rec
 	}
 	close(out)
+}
+
+func (db *PostgresIndexerDb) Validate() error {
+	query := `SELECT a.addr, a.microalgos FROM account a WHERE a.microalgos < 0`
+	rows, err := db.db.Query(query)
+	if err != nil {
+		return fmt.Errorf("account query %#v err %v", query, err)
+	}
+	var errparts []string
+	for rows.Next() {
+		var addr []byte
+		var microalgos int64
+		err = rows.Scan(&addr, &microalgos)
+		if err != nil {
+			return fmt.Errorf("account row %#v err %v", query, err)
+		}
+		var aa types.Address
+		copy(aa[:], addr)
+		errparts = append(errparts, fmt.Sprintf("%s algos=%d", aa.String(), microalgos))
+		if len(errparts) > 5 {
+			break
+		}
+	}
+	if len(errparts) > 0 {
+		return errors.New(strings.Join(errparts, "; "))
+	}
+	return nil
 }
 
 type postgresFactory struct {

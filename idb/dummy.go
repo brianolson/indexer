@@ -101,6 +101,10 @@ func (db *dummyIndexerDb) Applications(ctx context.Context, filter *models.Searc
 	return nil
 }
 
+func (db *dummyIndexerDb) Validate() error {
+	return nil
+}
+
 type IndexerFactory interface {
 	Name() string
 	Build(arg string, opts *IndexerDbOptions) (IndexerDb, error)
@@ -173,6 +177,9 @@ type IndexerDb interface {
 	Assets(ctx context.Context, filter AssetsQuery) <-chan AssetRow
 	AssetBalances(ctx context.Context, abq AssetBalanceQuery) <-chan AssetBalanceRow
 	Applications(ctx context.Context, filter *models.SearchForApplicationsParams) <-chan ApplicationRow
+
+	// Run some more or less slow checks that accounting is right
+	Validate() error
 }
 
 func GetAccount(idb IndexerDb, addr []byte) (account models.Account, err error) {

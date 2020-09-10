@@ -129,6 +129,13 @@ func loadGenesis(db idb.IndexerDb, in io.Reader) (err error) {
 	return db.LoadGenesis(genesis)
 }
 
+var extraValidation = false
+
+func init() {
+	evenv := os.Getenv("ALGIND_VALIDATION")
+	extraValidation = (len(evenv) > 0) && (evenv != "0")
+}
+
 func updateAccounting(db idb.IndexerDb) (rounds, txnCount int) {
 	rounds = 0
 	txnCount = 0
@@ -165,6 +172,10 @@ func updateAccounting(db idb.IndexerDb) (rounds, txnCount int) {
 	for txn := range txns {
 		maybeFail(txn.Error, "updateAccounting txn fetch, %v", txn.Error)
 		if txn.Round != currentRound {
+			if extraValidation {
+				err = db.Validate()
+				maybeFail(err, "validate fail in round %d, %s", currentRound, err)
+			}
 			prevRound := currentRound
 			roundsSeen++
 			currentRound = txn.Round
