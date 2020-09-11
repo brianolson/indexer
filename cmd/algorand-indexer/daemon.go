@@ -243,6 +243,10 @@ type blockImporterHandler struct {
 	imp   importer.Importer
 	db    idb.IndexerDb
 	round uint64
+
+	lastlog   time.Time
+	logRounds int
+	logTxns   int
 }
 
 func (bih *blockImporterHandler) HandleBlock(block *types.EncodedBlockCert) {
@@ -251,8 +255,9 @@ func (bih *blockImporterHandler) HandleBlock(block *types.EncodedBlockCert) {
 		fmt.Fprintf(os.Stderr, "received block %d when expecting %d\n", block.Block.Round, bih.round+1)
 	}
 	bih.imp.ImportDecodedBlock(block)
-	updateAccounting(bih.db)
-	dt := time.Now().Sub(start)
+	upstat := updateAccounting(bih.db)
+	end := time.Now()
+	dt := end.Sub(start)
 	if len(block.Block.Payset) == 0 {
 		// accounting won't have updated the round state, so we do it here
 		stateJsonStr, err := db.GetMetastate("state")
@@ -271,6 +276,21 @@ func (bih *blockImporterHandler) HandleBlock(block *types.EncodedBlockCert) {
 			fmt.Fprintf(os.Stderr, "failed to save import state, %v\n", err)
 		}
 	}
-	fmt.Printf("round r=%d (%d txn) imported in %s\n", block.Block.Round, len(block.Block.Payset), dt.String())
+	// log at most once every 2 seconds
+	dl := end.Sub(bih.lastlog)
+	if dl.Seconds() > 2 {
+		rounds := bih.logRounds + upstat.rounds
+		txnCount := bih.logTxns + upstat.txnCount
+		ldt := dt
+		if rounds > 1 {
+			ldt = dl
+		}
+
+		fmt.Printf("round r=%d (%d txn) imported in %s, accounting through %d, %f r/s %f t/s\n", block.Block.Round, len(block.Block.Payset), dt.String(), upstat.finishRound, float64(rounds)/ldt.Seconds(), float64(txnCount)/ldt.Seconds())
+
+		bih.lastlog = end
+		bih.logRounds = 0
+		bih.logTxns = 0
+	}
 	bih.round = uint64(block.Block.Round)
 }

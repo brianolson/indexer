@@ -136,9 +136,16 @@ func init() {
 	extraValidation = (len(evenv) > 0) && (evenv != "0")
 }
 
-func updateAccounting(db idb.IndexerDb) (rounds, txnCount int) {
-	rounds = 0
-	txnCount = 0
+type updateStatus struct {
+	rounds      int
+	txnCount    int
+	startRound  int64
+	finishRound uint64
+}
+
+func updateAccounting(db idb.IndexerDb) (stat updateStatus) {
+	stat.rounds = 0
+	stat.txnCount = 0
 	stateJsonStr, err := db.GetMetastate("state")
 	maybeFail(err, "getting import state, %v\n", err)
 	var state idb.ImportState
@@ -150,7 +157,7 @@ func updateAccounting(db idb.IndexerDb) (rounds, txnCount int) {
 			maybeFail(err, "%s: %v\n", genesisJsonPath, err)
 			err = loadGenesis(db, gf)
 			maybeFail(err, "%s: could not load genesis json, %v\n", genesisJsonPath, err)
-			rounds++
+			stat.rounds++
 			state.AccountRound = -1
 		} else {
 			fmt.Fprintf(os.Stderr, "no import state recorded; need --genesis genesis.json file to get started\n")
@@ -160,7 +167,7 @@ func updateAccounting(db idb.IndexerDb) (rounds, txnCount int) {
 	} else {
 		state, err = idb.ParseImportState(stateJsonStr)
 		maybeFail(err, "parsing import state, %v\n", err)
-		fmt.Printf("will start from round >%d\n", state.AccountRound)
+		stat.startRound = state.AccountRound
 	}
 
 	lastlog := time.Now()
@@ -194,13 +201,13 @@ func updateAccounting(db idb.IndexerDb) (rounds, txnCount int) {
 		}
 		err = act.AddTransaction(&txn)
 		maybeFail(err, "txn accounting r=%d i=%d, %v\n", txn.Round, txn.Intra, err)
-		txnCount++
+		stat.txnCount++
 	}
 	err = act.Close()
 	maybeFail(err, "accounting close %v\n", err)
-	rounds += roundsSeen
-	if rounds > 0 {
-		fmt.Printf("accounting updated through round %d\n", currentRound)
+	stat.rounds += roundsSeen
+	if stat.rounds > 0 {
+		stat.finishRound = currentRound
 	}
 	return
 }
@@ -289,7 +296,9 @@ var importCmd = &cobra.Command{
 			fmt.Printf("%d blocks in %s, %.0f/s, %d txn, %.0f/s\n", blocks, dt.String(), float64(time.Second)*float64(blocks)/float64(dt), txCount, float64(time.Second)*float64(txCount)/float64(dt))
 		}
 
-		accountingRounds, txnCount := updateAccounting(db)
+		upstat := updateAccounting(db)
+		accountingRounds := upstat.rounds
+		txnCount := upstat.txnCount
 
 		accountingdone := time.Now()
 		if accountingRounds > 0 {
