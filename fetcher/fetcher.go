@@ -47,9 +47,6 @@ type fetcherImpl struct {
 	done bool
 
 	failingSince time.Time
-
-	tarDir    string
-	tarSource *tarBlockSet
 }
 
 func (bot *fetcherImpl) Algod() algod.Client {
