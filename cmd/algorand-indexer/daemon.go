@@ -32,15 +32,12 @@ var (
 	tokenString      string
 
 	configFilePath string
-
-	logger *log.Logger
 )
 
 func init() {
-	logger = log.New()
-	logger.SetFormatter(&log.JSONFormatter{})
-	logger.SetOutput(os.Stdout)
-	logger.SetLevel(log.InfoLevel)
+	log.SetFormatter(&log.JSONFormatter{})
+	log.SetOutput(os.Stdout)
+	log.SetLevel(log.InfoLevel)
 }
 
 var daemonCmd = &cobra.Command{
@@ -116,7 +113,7 @@ var daemonCmd = &cobra.Command{
 
 		// TODO: trap SIGTERM and call cf() to exit gracefully
 		fmt.Printf("serving on %s\n", daemonServerAddr)
-		api.Serve(ctx, daemonServerAddr, db, logger, tokenArray, developerMode)
+		api.Serve(ctx, daemonServerAddr, db, log.StandardLogger(), tokenArray, developerMode)
 	},
 }
 

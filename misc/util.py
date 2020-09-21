@@ -134,7 +134,7 @@ def ensure_test_db(connection_string, keep_temps=False):
         # use the passed db
         return connection_string
     # create a temporary database
-    dbname = 'e2eindex_{}_{}'.format(int(time.time()), random.randrange(1000))
+    dbname = 'e2eindex_{}_{}'.format(time.strftime('%Y%m%d_%H%M%S', time.localtime()), random.randrange(1000))
     xrun(['dropdb', '--if-exists', dbname], timeout=5)
     xrun(['createdb', dbname], timeout=5)
     if not keep_temps:

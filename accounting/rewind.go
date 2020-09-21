@@ -6,6 +6,7 @@ import (
 	"github.com/algorand/go-algorand-sdk/encoding/msgpack"
 	atypes "github.com/algorand/go-algorand-sdk/types"
 	models "github.com/algorand/indexer/api/generated/v2"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/algorand/indexer/idb"
 	"github.com/algorand/indexer/types"
@@ -37,8 +38,9 @@ func assetUpdate(account *models.Account, assetid uint64, add, sub uint64) {
 
 func appRewind(account *models.Account, txrnow *idb.TxnRow, stxn *types.SignedTxnWithAD) error {
 	// TODO: rewind app state
-	txnrow.TxnExtra.GlobalReverseDelta
-	txnrow.TxnExtra.LocalReverseDelta
+	//txnrow.TxnExtra.GlobalReverseDelta
+	//txnrow.TxnExtra.LocalReverseDelta
+	log.Print("TODO WRITEME appRewind")
 	return nil
 }
 
