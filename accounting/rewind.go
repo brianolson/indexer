@@ -36,11 +36,11 @@ func assetUpdate(account *models.Account, assetid uint64, add, sub uint64) {
 	*account.Assets = assets
 }
 
-func appRewind(account *models.Account, txrnow *idb.TxnRow, stxn *types.SignedTxnWithAD) error {
+func appRewind(account *models.Account, txnrow *idb.TxnRow, stxn *types.SignedTxnWithAD) error {
 	// TODO: rewind app state
 	//txnrow.TxnExtra.GlobalReverseDelta
 	//txnrow.TxnExtra.LocalReverseDelta
-	log.Print("TODO WRITEME appRewind")
+	log.Info("TODO WRITEME appRewind", txnrow.Extra.GlobalReverseDelta, txnrow.Extra.LocalReverseDelta)
 	return nil
 }
 
