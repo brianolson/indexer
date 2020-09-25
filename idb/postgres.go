@@ -990,14 +990,20 @@ ON CONFLICT (addr, assetid) DO UPDATE SET amount = account_asset.amount + EXCLUD
 			return fmt.Errorf("prepare app local get, %v", err)
 		}
 		defer getlocal.Close()
-		// reverseDeltas for txnuplocal below: [][json, round, intra]
-		reverseDeltas := make([][]interface{}, 0, len(updates.AppLocalDeltas))
 		var droplocals [][]interface{}
 
 		getapp, err := tx.Prepare(`SELECT params FROM app WHERE index = $1`)
 		if err != nil {
 			return fmt.Errorf("prepare app get (l), %v", err)
 		}
+
+		// reverseDeltas for txnuplocal below: [][json, round, intra]
+		type alrTmp struct {
+			round uint64
+			intra int
+			alr   []AppReverseDelta
+		}
+		reverseDeltas := make([]alrTmp, 0, len(updates.AppLocalDeltas))
 
 		for _, ald := range updates.AppLocalDeltas {
 			if ald.OnCompletion == atypes.CloseOutOC || ald.OnCompletion == atypes.ClearStateOC {
@@ -1034,7 +1040,22 @@ ON CONFLICT (addr, assetid) DO UPDATE SET amount = account_asset.amount + EXCLUD
 				}
 			}
 			dirty = setDirtyAppLocalState(dirty, localstate)
-			reverseDeltas = append(reverseDeltas, []interface{}{json.Encode(reverseDelta), ald.Round, ald.Intra})
+			reverseDelta.AddressIndex = ald.AddrIndex
+			found := false
+			for alri, alrt := range reverseDeltas {
+				if alrt.round == ald.Round && alrt.intra == ald.Intra {
+					reverseDeltas[alri].alr = append(reverseDeltas[alri].alr, reverseDelta)
+					found = true
+					break
+				}
+			}
+			if !found {
+				reverseDeltas = append(reverseDeltas, alrTmp{
+					ald.Round,
+					ald.Intra,
+					[]AppReverseDelta{reverseDelta},
+				})
+			}
 		}
 
 		// update txns with reverse deltas
@@ -1046,9 +1067,10 @@ ON CONFLICT (addr, assetid) DO UPDATE SET amount = account_asset.amount + EXCLUD
 			}
 			defer txnuplocal.Close()
 			for _, rd := range reverseDeltas {
-				_, err = txnuplocal.Exec(rd...)
+				alrJson := json.Encode(rd.alr)
+				_, err = txnuplocal.Exec(alrJson, rd.round, rd.intra)
 				if err != nil {
-					return fmt.Errorf("app local txn up, r=%d i=%d %v", rd[1], rd[2], err)
+					return fmt.Errorf("app local txn up, r=%d i=%d %v", rd.round, rd.intra, err)
 				}
 			}
 		}

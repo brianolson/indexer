@@ -137,9 +137,9 @@ func DecodeTxnRowNext(s string) (round uint64, intra uint32, err error) {
 }
 
 type TxnExtra struct {
-	AssetCloseAmount   uint64          `codec:"aca,omitempty"`
-	GlobalReverseDelta AppReverseDelta `codec:"agr,omitempty"`
-	LocalReverseDelta  AppReverseDelta `codec:"alr,omitempty"`
+	AssetCloseAmount   uint64            `codec:"aca,omitempty"`
+	GlobalReverseDelta AppReverseDelta   `codec:"agr,omitempty"`
+	LocalReverseDelta  []AppReverseDelta `codec:"alr,omitempty"`
 }
 
 // TODO: sqlite3 impl
@@ -498,6 +498,9 @@ type AppReverseDelta struct {
 	ClearStateProgram []byte              `codec:"clearp,omitempty"`
 	LocalStateSchema  atypes.StateSchema  `codec:"lsch,omitempty"`
 	GlobalStateSchema atypes.StateSchema  `codec:"gsch,omitempty"`
+
+	// for local state deltas, which address in the txn does it apply to
+	AddressIndex uint64 `codec:"ai,omitempty"`
 }
 
 func (ard *AppReverseDelta) SetDelta(key []byte, delta types.ValueDelta) {

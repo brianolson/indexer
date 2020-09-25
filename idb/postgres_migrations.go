@@ -292,6 +292,7 @@ func init() {
 		{m1fixupBlockTime, true}, // UPDATE over all blocks
 		{m2apps, true},           // schema change breaks other SQL
 		{m3acfgFix, false},
+		// TODO: m4, drop txn.extra['alr'] and replace with new data
 	}
 }
 

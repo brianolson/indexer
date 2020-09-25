@@ -36,11 +36,52 @@ func assetUpdate(account *models.Account, assetid uint64, add, sub uint64) {
 	*account.Assets = assets
 }
 
+func applyReverseDelta(ls *models.ApplicationLocalState, delta []StateDelta) {
+}
+
 func appRewind(account *models.Account, txnrow *idb.TxnRow, stxn *types.SignedTxnWithAD) error {
+	thisaddr, err := atypes.DecodeAddress(account.Address)
+	if err != nil {
+		return err
+	}
 	// TODO: rewind app state
 	//txnrow.TxnExtra.GlobalReverseDelta
 	//txnrow.TxnExtra.LocalReverseDelta
-	log.Info("TODO WRITEME appRewind", txnrow.Extra.GlobalReverseDelta, txnrow.Extra.LocalReverseDelta)
+	// TODO: if this account is the owner, apply global delta
+
+	var ls models.ApplicationLocalState
+	var lsi int
+	existingLocalState := false
+	lsSet := false
+	// find the local app state for this txn
+	for lsi, ls = range *account.ApplicationLocalState {
+		if ls.Id == stxn.Txn.ApplicationID {
+			existingLocalState = true
+			break
+		}
+	}
+	// for each local delta, if it applies to _this_ account, apply it
+	for _, ld := range txnrow.Extra.LocalReverseDelta {
+		var addr atypes.Address
+		if ld.AddressIndex == 0 {
+			addr = stxn.Txn.Sender
+		} else {
+			addr = stxn.Txn.Accounts[ld.AddressIndex-1]
+		}
+		if addr == thisaddr {
+			lsSet = true
+			applyReverseDelta(&ls, ld.Delta)
+			log.Info("TODO WRITEME appRewind local ", string(idb.JsonOneLine(ld)))
+		}
+	}
+	if !lsSet {
+		// nothing happened
+	} else if existingLocalState {
+		(*account.ApplicationLocalState)[lsi] = ls
+	} else {
+		(*account.ApplicationLocalState) = append((*account.ApplicationLocalState), ls)
+	}
+	log.Info("TODO WRITEME appRewind", string(idb.JsonOneLine(txnrow.Extra.GlobalReverseDelta))) //, string(idb.JsonOneLine(txnrow.Extra.LocalReverseDelta)))
 	return nil
 }
 
