@@ -2306,6 +2306,28 @@ func (db *PostgresIndexerDb) Validate() error {
 			break
 		}
 	}
+	if len(errparts) < 5 {
+		query = `SELECT addr, assetid, amount FROM account_asset WHERE amount < 0`
+		rows, err = db.db.Query(query)
+		if err != nil {
+			return fmt.Errorf("account query %#v err %v", query, err)
+		}
+		for rows.Next() {
+			var addr []byte
+			var assetid int64
+			var amount int64
+			err = rows.Scan(&addr, &assetid, &amount)
+			if err != nil {
+				return fmt.Errorf("account_asset row %#v err %v", query, err)
+			}
+			var aa types.Address
+			copy(aa[:], addr)
+			errparts = append(errparts, fmt.Sprintf("%s asset[%d] amount=%d", aa.String(), assetid, amount))
+			if len(errparts) > 5 {
+				break
+			}
+		}
+	}
 	if len(errparts) > 0 {
 		return errors.New(strings.Join(errparts, "; "))
 	}
