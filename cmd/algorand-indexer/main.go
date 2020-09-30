@@ -13,8 +13,17 @@ import (
 
 	"github.com/algorand/indexer/config"
 	"github.com/algorand/indexer/idb"
+	_ "github.com/algorand/indexer/idb/postgres"
 	"github.com/algorand/indexer/version"
 )
+
+func maybeFail(err error, errfmt string, params ...interface{}) {
+	if err == nil {
+		return
+	}
+	fmt.Fprintf(os.Stderr, errfmt, params...)
+	os.Exit(1)
+}
 
 var rootCmd = &cobra.Command{
 	Use:   "indexer",
@@ -106,7 +115,6 @@ func init() {
 		viper.AddConfigPath(k)
 	}
 	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
-
 
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
