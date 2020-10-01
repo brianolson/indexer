@@ -1,7 +1,7 @@
 // You can build without postgres by `go build --tags nopostgres` but it's on by default
 // +build !nopostgres
 
-package idb
+package postgres
 
 import (
 	"context"
@@ -15,6 +15,8 @@ import (
 	"github.com/algorand/go-algorand-sdk/encoding/json"
 	"github.com/algorand/go-algorand-sdk/encoding/msgpack"
 
+	"github.com/algorand/indexer/idb"
+	"github.com/algorand/indexer/idb/migration"
 	"github.com/algorand/indexer/types"
 )
 
@@ -30,24 +32,30 @@ type MigrationState struct {
 }
 
 // A migration function should take care of writing back to metastate migration row
-type migrationFunc func(*PostgresIndexerDb, *MigrationState) error
+type postgresMigrationFunc func(*PostgresIndexerDb, *MigrationState) error
 
 type migrationStruct struct {
-	migrate migrationFunc
+	migrate postgresMigrationFunc
 
-	// The system should wait for this migration to finish before trying to import new data or serve data.
-	preventStartup bool
+	blocking bool
+
+	// Description of the migration
+	description string
 }
 
 var migrations []migrationStruct
 
-func anyBlockers(nextMigration int) bool {
-	for i := nextMigration; i < len(migrations); i++ {
-		if migrations[i].preventStartup {
-			return true
-		}
+type migrationTask struct {
+	migrationId    int
+	migration      migrationStruct
+	migrationState *MigrationState
+	abortChan      chan error
+}
+
+func wrapPostgresHandler(handler postgresMigrationFunc, db *PostgresIndexerDb, state *MigrationState) migration.Handler {
+	return func() error {
+		return handler(db, state)
 	}
-	return false
 }
 
 func (db *PostgresIndexerDb) runAvailableMigrations(migrationStateJson string) (err error) {
@@ -59,38 +67,37 @@ func (db *PostgresIndexerDb) runAvailableMigrations(migrationStateJson string) (
 		}
 	}
 
-	if state.NextMigration >= len(migrations) {
-		return nil
-	}
-	if anyBlockers(state.NextMigration) {
-		// run migrations synchronously
-		log.Print("Indexer startup will be delayed until database migration completes")
-		return db.runMigrationState(&state, true)
-	} else {
-		log.Print("database migrations running in background...")
-		go db.runMigrationState(&state, false)
-		return nil
-	}
-}
-
-func (db *PostgresIndexerDb) runMigrationState(state *MigrationState, blocking bool) (err error) {
+	// Make migration tasks
 	nextMigration := state.NextMigration
-	for true {
-		err = migrations[nextMigration].migrate(db, state)
-		if err != nil {
-			return fmt.Errorf("error in migration %d: %v", nextMigration, err)
-		}
+	tasks := make([]migration.Task, 0)
+	for nextMigration < len(migrations) {
+		tasks = append(tasks, migration.Task{
+			Handler:       wrapPostgresHandler(migrations[nextMigration].migrate, db, &state),
+			MigrationId:   nextMigration,
+			Description:   migrations[nextMigration].description,
+			DBUnavailable: migrations[nextMigration].blocking,
+		})
 		nextMigration++
-		if nextMigration >= len(migrations) {
-			return nil
-		}
-		state.NextMigration = nextMigration
-		if blocking && !anyBlockers(nextMigration) {
-			log.Print("database migrations will complete in background...")
-			go db.runMigrationState(state, false)
-			return nil
-		}
 	}
+
+	if len(tasks) > 0 {
+		// Add a task to mark migrations as done instead of using a channel.
+		tasks = append(tasks, migration.Task{
+			MigrationId: 9999999,
+			Handler: func() error {
+				return db.markMigrationsAsDone()
+			},
+			Description: "Mark migrations done",
+		})
+	}
+
+	db.migration, err = migration.MakeMigration(tasks)
+	if err != nil {
+		return err
+	}
+
+	go db.migration.RunMigrations()
+
 	return nil
 }
 
@@ -151,7 +158,7 @@ func m3acfgFix(db *PostgresIndexerDb, state *MigrationState) (err error) {
 		assetIds = append(assetIds, aid)
 	}
 	rows.Close()
-	for true {
+	for {
 		nexti, err := m3acfgFixAsyncInner(db, state, assetIds)
 		if err != nil {
 			log.Printf("acfg fix chunk, %v", err)
@@ -200,7 +207,7 @@ func m3acfgFixAsyncInner(db *PostgresIndexerDb, state *MigrationState, assetIds 
 			}
 			return i, nil
 		}
-		txrows := db.txTransactions(tx, TransactionFilter{TypeEnum: 3, AssetId: uint64(aid)})
+		txrows := db.txTransactions(tx, idb.TransactionFilter{TypeEnum: 3, AssetId: uint64(aid)})
 		prevRound := uint64(0)
 		first := true
 		var params types.AssetParams
@@ -287,11 +294,10 @@ func sqlMigration(db *PostgresIndexerDb, state *MigrationState, sqlLines []strin
 
 func init() {
 	migrations = []migrationStruct{
-		// {func, preventStartup}
-		{m0fixupTxid, false},
-		{m1fixupBlockTime, true}, // UPDATE over all blocks
-		{m2apps, true},           // schema change breaks other SQL
-		{m3acfgFix, false},
+		{m0fixupTxid, false, "Recompute the txid with corrected algorithm."},
+		{m1fixupBlockTime, true, "Adjust block time to UTC timezone."},
+		{m2apps, true, "Update DB Schema for Algorand application support."},
+		{m3acfgFix, false, "Recompute asset configurations with corrected merge function."},
 	}
 }
 
@@ -313,7 +319,7 @@ func (mtxid *txidFiuxpMigrationContext) asyncTxidFixup() (err error) {
 	log.Print("txid fixup migration starting")
 	prevRound := state.NextRound - 1
 	txns := db.YieldTxns(context.Background(), prevRound)
-	batch := make([]TxnRow, 15000)
+	batch := make([]idb.TxnRow, 15000)
 	txInBatch := 0
 	roundsInBatch := 0
 	prevBatchRound := uint64(math.MaxUint64)
@@ -386,7 +392,7 @@ type txidFixupRow struct {
 	txid  string // base32 string
 }
 
-func (mtxid *txidFiuxpMigrationContext) putTxidFixupBatch(batch []TxnRow) error {
+func (mtxid *txidFiuxpMigrationContext) putTxidFixupBatch(batch []idb.TxnRow) error {
 	db := mtxid.db
 	state := mtxid.state
 	minRound := batch[0].Round
