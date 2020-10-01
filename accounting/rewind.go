@@ -1,6 +1,7 @@
 package accounting
 
 import (
+	"bytes"
 	"context"
 
 	"github.com/algorand/go-algorand-sdk/encoding/msgpack"
@@ -36,7 +37,51 @@ func assetUpdate(account *models.Account, assetid uint64, add, sub uint64) {
 	*account.Assets = assets
 }
 
-func applyReverseDelta(ls *models.ApplicationLocalState, delta []StateDelta) {
+func applyReverseDelta(ls *models.ApplicationLocalState, delta []idb.StateDelta) {
+	var tkvs []models.TealKeyValue
+	if ls.KeyValue != nil {
+		tkvs = *ls.KeyValue
+	}
+	for _, d := range delta {
+		found := false
+		for i, kv := range tkvs {
+			if bytes.Equal([]byte(kv.Key), d.Key) {
+				found = true
+				switch d.Delta.Action {
+				case types.SetBytesAction:
+					tkvs[i].Value.Bytes = string(d.Delta.Bytes)
+					tkvs[i].Value.Type = 1 // TODO: add constants somewhere undere generated/v2 ? Is this in the sdk?
+				case types.SetUintAction:
+					tkvs[i].Value.Uint = d.Delta.Uint
+					tkvs[i].Value.Type = 2
+				case types.DeleteAction:
+					if i > len(tkvs)-1 {
+						tkvs[i] = tkvs[len(tkvs)-1]
+					}
+					tkvs = tkvs[:len(tkvs)-1]
+				}
+				break
+			}
+		}
+		if !found {
+			nkv := models.TealKeyValue{Key: string(d.Key)}
+			switch d.Delta.Action {
+			case types.SetBytesAction:
+				nkv.Value.Bytes = string(d.Delta.Bytes)
+				nkv.Value.Type = 1 // TODO: add constants somewhere undere generated/v2 ? Is this in the sdk?
+			case types.SetUintAction:
+				nkv.Value.Uint = d.Delta.Uint
+				nkv.Value.Type = 2
+			}
+			tkvs = append(tkvs, nkv)
+		}
+	}
+	if len(tkvs) > 0 {
+		ntkvs := models.TealKeyValueStore(tkvs)
+		ls.KeyValue = &ntkvs
+	} else {
+		ls.KeyValue = nil
+	}
 }
 
 func appRewind(account *models.Account, txnrow *idb.TxnRow, stxn *types.SignedTxnWithAD) error {
@@ -54,8 +99,8 @@ func appRewind(account *models.Account, txnrow *idb.TxnRow, stxn *types.SignedTx
 	existingLocalState := false
 	lsSet := false
 	// find the local app state for this txn
-	for lsi, ls = range *account.ApplicationLocalState {
-		if ls.Id == stxn.Txn.ApplicationID {
+	for lsi, ls = range *account.AppsLocalState {
+		if atypes.AppIndex(ls.Id) == stxn.Txn.ApplicationID {
 			existingLocalState = true
 			break
 		}
@@ -77,9 +122,9 @@ func appRewind(account *models.Account, txnrow *idb.TxnRow, stxn *types.SignedTx
 	if !lsSet {
 		// nothing happened
 	} else if existingLocalState {
-		(*account.ApplicationLocalState)[lsi] = ls
+		(*account.AppsLocalState)[lsi] = ls
 	} else {
-		(*account.ApplicationLocalState) = append((*account.ApplicationLocalState), ls)
+		(*account.AppsLocalState) = append((*account.AppsLocalState), ls)
 	}
 	log.Info("TODO WRITEME appRewind", string(idb.JsonOneLine(txnrow.Extra.GlobalReverseDelta))) //, string(idb.JsonOneLine(txnrow.Extra.LocalReverseDelta)))
 	return nil

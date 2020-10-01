@@ -1022,7 +1022,7 @@ ON CONFLICT (addr, assetid) DO UPDATE SET amount = account_asset.amount + EXCLUD
 		type alrTmp struct {
 			round uint64
 			intra int
-			alr   []AppReverseDelta
+			alr   []idb.AppReverseDelta
 		}
 		reverseDeltas := make([]alrTmp, 0, len(updates.AppLocalDeltas))
 
@@ -1074,7 +1074,7 @@ ON CONFLICT (addr, assetid) DO UPDATE SET amount = account_asset.amount + EXCLUD
 				reverseDeltas = append(reverseDeltas, alrTmp{
 					ald.Round,
 					ald.Intra,
-					[]AppReverseDelta{reverseDelta},
+					[]idb.AppReverseDelta{reverseDelta},
 				})
 			}
 		}
