@@ -86,6 +86,13 @@ func (imp *dbImporter) ImportDecodedBlock(blockContainer *types.EncodedBlockCert
 		if !ok {
 			return txCount, fmt.Errorf("%d:%d unknown txn type %v", round, intra, txtype)
 		}
+		participants := make([][]byte, 0, 10)
+		participants = participate(participants, stxn.Txn.Sender[:])
+		participants = participate(participants, stxn.Txn.Receiver[:])
+		participants = participate(participants, stxn.Txn.CloseRemainderTo[:])
+		participants = participate(participants, stxn.Txn.AssetSender[:])
+		participants = participate(participants, stxn.Txn.AssetReceiver[:])
+		participants = participate(participants, stxn.Txn.AssetCloseTo[:])
 		assetid := uint64(0)
 		switch txtypeenum {
 		case 3:
@@ -102,6 +109,15 @@ func (imp *dbImporter) ImportDecodedBlock(blockContainer *types.EncodedBlockCert
 			if assetid == 0 {
 				assetid = block.TxnCounter - uint64(len(block.Payset)) + uint64(intra) + 1
 			}
+			// add local state deltas to participation
+			for accountIndex := range stxn.EvalDelta.LocalDeltas {
+				if accountIndex == 0 {
+					// Sender already in participants
+				} else {
+					participants = participate(participants, stxn.Txn.Accounts[accountIndex-1][:])
+				}
+			}
+			// TODO? on global state change add the app creator to the participant list?
 		}
 		if stxn.HasGenesisID {
 			stxn.Txn.GenesisID = block.GenesisID
@@ -110,13 +126,6 @@ func (imp *dbImporter) ImportDecodedBlock(blockContainer *types.EncodedBlockCert
 			stxn.Txn.GenesisHash = block.GenesisHash
 		}
 		stxnad := stxn.SignedTxnWithAD
-		participants := make([][]byte, 0, 10)
-		participants = participate(participants, stxn.Txn.Sender[:])
-		participants = participate(participants, stxn.Txn.Receiver[:])
-		participants = participate(participants, stxn.Txn.CloseRemainderTo[:])
-		participants = participate(participants, stxn.Txn.AssetSender[:])
-		participants = participate(participants, stxn.Txn.AssetReceiver[:])
-		participants = participate(participants, stxn.Txn.AssetCloseTo[:])
 		err = imp.db.AddTransaction(round, intra, txtypeenum, assetid, stxnad, participants)
 		if err != nil {
 			return txCount, fmt.Errorf("error importing txn r=%d i=%d, %v", round, intra, err)

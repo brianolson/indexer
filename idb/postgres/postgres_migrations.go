@@ -299,7 +299,7 @@ func init() {
 		{m2apps, true, "Update DB Schema for Algorand application support."},
 		{m3acfgFix, false, "Recompute asset configurations with corrected merge function."},
 	}
-	// TODO: m4, drop txn.extra['alr'] and replace with new data
+	// TODO: m4, drop txn.extra['alr'] and replace with new data; fix txn_participants table for appc txns
 }
 
 const txidMigrationErrMsg = "ERROR migrating txns for txid, stopped, will retry on next indexer startup"

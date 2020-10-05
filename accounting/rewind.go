@@ -37,11 +37,26 @@ func assetUpdate(account *models.Account, assetid uint64, add, sub uint64) {
 	*account.Assets = assets
 }
 
-func applyReverseDelta(ls *models.ApplicationLocalState, delta []idb.StateDelta) {
+const (
+	// TODO: add constants somewhere undere generated/v2 ? Is this in the sdk?
+	modelTealValueTypeBytes = 1
+	modelTealValueTypeUint  = 2
+)
+
+func applyLocalReverseDelta(ls *models.ApplicationLocalState, delta []idb.StateDelta) {
 	var tkvs []models.TealKeyValue
 	if ls.KeyValue != nil {
 		tkvs = *ls.KeyValue
 	}
+	tkvs = applyReverseDelta(tkvs, delta)
+	if len(tkvs) > 0 {
+		ntkvs := models.TealKeyValueStore(tkvs)
+		ls.KeyValue = &ntkvs
+	} else {
+		ls.KeyValue = nil
+	}
+}
+func applyReverseDelta(tkvs []models.TealKeyValue, delta []idb.StateDelta) []models.TealKeyValue {
 	for _, d := range delta {
 		found := false
 		for i, kv := range tkvs {
@@ -50,10 +65,10 @@ func applyReverseDelta(ls *models.ApplicationLocalState, delta []idb.StateDelta)
 				switch d.Delta.Action {
 				case types.SetBytesAction:
 					tkvs[i].Value.Bytes = string(d.Delta.Bytes)
-					tkvs[i].Value.Type = 1 // TODO: add constants somewhere undere generated/v2 ? Is this in the sdk?
+					tkvs[i].Value.Type = modelTealValueTypeBytes
 				case types.SetUintAction:
 					tkvs[i].Value.Uint = d.Delta.Uint
-					tkvs[i].Value.Type = 2
+					tkvs[i].Value.Type = modelTealValueTypeUint
 				case types.DeleteAction:
 					if i > len(tkvs)-1 {
 						tkvs[i] = tkvs[len(tkvs)-1]
@@ -68,19 +83,34 @@ func applyReverseDelta(ls *models.ApplicationLocalState, delta []idb.StateDelta)
 			switch d.Delta.Action {
 			case types.SetBytesAction:
 				nkv.Value.Bytes = string(d.Delta.Bytes)
-				nkv.Value.Type = 1 // TODO: add constants somewhere undere generated/v2 ? Is this in the sdk?
+				nkv.Value.Type = modelTealValueTypeBytes
 			case types.SetUintAction:
 				nkv.Value.Uint = d.Delta.Uint
-				nkv.Value.Type = 2
+				nkv.Value.Type = modelTealValueTypeUint
 			}
 			tkvs = append(tkvs, nkv)
 		}
 	}
+	return tkvs
+}
+
+func applyGlobalReverseDelta(app *models.Application, grd *idb.AppReverseDelta) {
+	if len(grd.ApprovalProgram) > 0 {
+		app.Params.ApprovalProgram = grd.ApprovalProgram
+	}
+	if len(grd.ClearStateProgram) > 0 {
+		app.Params.ClearStateProgram = grd.ClearStateProgram
+	}
+	var tkvs []models.TealKeyValue
+	if app.Params.GlobalState != nil {
+		tkvs = *app.Params.GlobalState
+	}
+	tkvs = applyReverseDelta(tkvs, grd.Delta)
 	if len(tkvs) > 0 {
 		ntkvs := models.TealKeyValueStore(tkvs)
-		ls.KeyValue = &ntkvs
+		app.Params.GlobalState = &ntkvs
 	} else {
-		ls.KeyValue = nil
+		app.Params.GlobalState = nil
 	}
 }
 
@@ -89,10 +119,20 @@ func appRewind(account *models.Account, txnrow *idb.TxnRow, stxn *types.SignedTx
 	if err != nil {
 		return err
 	}
-	// TODO: rewind app state
-	//txnrow.TxnExtra.GlobalReverseDelta
-	//txnrow.TxnExtra.LocalReverseDelta
-	// TODO: if this account is the owner, apply global delta
+	if account.CreatedApps != nil {
+		aca := *account.CreatedApps
+		for ci, ca := range aca {
+			if atypes.AppIndex(ca.Id) == stxn.Txn.ApplicationID {
+				applyGlobalReverseDelta(&ca, &txnrow.Extra.GlobalReverseDelta)
+				(*account.CreatedApps)[ci] = ca
+			}
+		}
+		if len(aca) == 0 {
+			account.CreatedApps = nil
+		} else {
+			account.CreatedApps = &aca
+		}
+	}
 
 	var ls models.ApplicationLocalState
 	var lsi int
@@ -115,8 +155,12 @@ func appRewind(account *models.Account, txnrow *idb.TxnRow, stxn *types.SignedTx
 		}
 		if addr == thisaddr {
 			lsSet = true
-			applyReverseDelta(&ls, ld.Delta)
-			log.Info("TODO WRITEME appRewind local ", string(idb.JsonOneLine(ld)))
+			applyLocalReverseDelta(&ls, ld.Delta)
+			if ld.OnCompletion == atypes.OptInOC {
+				if ls.KeyValue != nil {
+					log.Warnf("%d:%d %s residual state after rewinding opt-in: %#v", txnrow.Round, txnrow.Intra, account.Address, ls.KeyValue)
+				}
+			}
 		}
 	}
 	if !lsSet {
@@ -126,7 +170,7 @@ func appRewind(account *models.Account, txnrow *idb.TxnRow, stxn *types.SignedTx
 	} else {
 		(*account.AppsLocalState) = append((*account.AppsLocalState), ls)
 	}
-	log.Info("TODO WRITEME appRewind", string(idb.JsonOneLine(txnrow.Extra.GlobalReverseDelta))) //, string(idb.JsonOneLine(txnrow.Extra.LocalReverseDelta)))
+	//log.Info("TODO WRITEME appRewind", string(idb.JsonOneLine(txnrow.Extra.GlobalReverseDelta))) //, string(idb.JsonOneLine(txnrow.Extra.LocalReverseDelta)))
 	return nil
 }
 
