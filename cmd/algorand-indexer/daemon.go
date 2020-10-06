@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/algorand/go-algorand-sdk/encoding/json"
@@ -79,15 +81,24 @@ var daemonCmd = &cobra.Command{
 			err := importer.ImportProto(db)
 			maybeFail(err, "import proto, %v\n", err)
 		}
+		var exitRound uint64 = math.MaxUint64
+		ers := os.Getenv("INDEXER_DEBUG_EXIT_ROUND")
+		if len(ers) > 0 {
+			v, err := strconv.ParseUint(ers, 10, 64)
+			maybeFail(err, "INDEXER_DEBUG_EXIT_ROUND invalid, %s", err)
+			exitRound = v
+		}
 		if bot != nil {
 			maxRound, err := db.GetMaxRound()
 			if err == nil {
 				bot.SetNextRound(maxRound + 1)
 			}
 			bih := blockImporterHandler{
-				imp:   importer.NewDBImporter(db),
-				db:    db,
-				round: maxRound,
+				imp:       importer.NewDBImporter(db),
+				db:        db,
+				round:     maxRound,
+				exitRound: exitRound,
+				cf:        cf,
 			}
 			bot.AddBlockHandler(&bih)
 			bot.SetContext(ctx)
@@ -103,8 +114,17 @@ var daemonCmd = &cobra.Command{
 		}
 
 		// TODO: trap SIGTERM and call cf() to exit gracefully
-		fmt.Printf("serving on %s\n", daemonServerAddr)
-		api.Serve(ctx, daemonServerAddr, db, log.StandardLogger(), tokenArray, developerMode)
+		if len(daemonServerAddr) == 0 {
+			if len(ers) == 0 {
+				fmt.Fprintf(os.Stderr, "error, no serve address\n")
+				os.Exit(1)
+			}
+			// specail test mode, be a daemon but only load one round then exit
+			<-ctx.Done()
+		} else {
+			fmt.Printf("serving on %s\n", daemonServerAddr)
+			api.Serve(ctx, daemonServerAddr, db, log.StandardLogger(), tokenArray, developerMode)
+		}
 	},
 }
 
@@ -128,12 +148,19 @@ type blockImporterHandler struct {
 	imp   importer.Importer
 	db    idb.IndexerDb
 	round uint64
+
+	exitRound uint64
+	cf        func()
 }
 
 func (bih *blockImporterHandler) HandleBlock(block *types.EncodedBlockCert) {
 	start := time.Now()
 	if uint64(block.Block.Round) != bih.round+1 {
 		fmt.Fprintf(os.Stderr, "received block %d when expecting %d\n", block.Block.Round, bih.round+1)
+	}
+	if bih.exitRound != 0 && uint64(block.Block.Round) > bih.exitRound {
+		bih.cf()
+		return
 	}
 	bih.imp.ImportDecodedBlock(block)
 	importer.UpdateAccounting(bih.db, genesisJsonPath)
@@ -158,4 +185,8 @@ func (bih *blockImporterHandler) HandleBlock(block *types.EncodedBlockCert) {
 	}
 	fmt.Printf("round r=%d (%d txn) imported in %s\n", block.Block.Round, len(block.Block.Payset), dt.String())
 	bih.round = uint64(block.Block.Round)
+	if bih.exitRound != 0 && uint64(block.Block.Round) == bih.exitRound {
+		bih.cf()
+		return
+	}
 }

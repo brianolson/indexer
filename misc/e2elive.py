@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 #
+# For a private network, `goal network start` it, run indexer against
+# that, verify that they get the same account data at the end.
 
 import atexit
 import glob
@@ -36,6 +38,7 @@ def main():
         logging.basicConfig(level=logging.DEBUG)
     else:
         logging.basicConfig(level=logging.INFO)
+
     indexer_bin = find_indexer(args.indexer_bin)
     sourcenet = args.source_net
     source_is_tar = False
@@ -68,7 +71,6 @@ def main():
         xrun(['rsync', '-a', sourcenet + '/', tempnet + '/'])
     blockfiles = glob.glob(os.path.join(tdir.name, 'net', 'Primary', '*', '*.block.sqlite'))
     lastblock = countblocks(blockfiles[0])
-    #subprocess.run(['find', tempnet, '-type', 'f'])
     xrun(['goal', 'network', 'start', '-r', tempnet])
     atexitrun(['goal', 'network', 'stop', '-r', tempnet])
 
