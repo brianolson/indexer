@@ -140,7 +140,7 @@ def ensure_test_db(connection_string, keep_temps=False):
     if not keep_temps:
         atexitrun(['dropdb', '--if-exists', dbname], timeout=5)
     else:
-        logger.info("leaving db %r", dbname)
+        atexit.register(print, 'CLEANUP TODO:\ndropdb --if-exists {!r}'.format(dbname))
     return 'dbname={} sslmode=disable'.format(dbname)
 
 # whoever calls this will need to import boto and get the s3 client
@@ -159,3 +159,49 @@ def firstFromS3Prefix(s3, bucket, prefix, desired_filename, outdir=None, outpath
             logger.info('s3://%s/%s -> %s', bucket, x['Key'], outpath)
             s3.download_file(bucket, x['Key'], outpath)
             return
+
+def deepeq(a, b, path=None, msg=None):
+    if a is None:
+        if not bool(b):
+            return True
+    if b is None:
+        if not bool(a):
+            return True
+    if isinstance(a, dict):
+        if not isinstance(b, dict):
+            return False
+        if len(a) != len(b):
+            ak = set(a.keys())
+            bk = set(b.keys())
+            both = ak.intersection(bk)
+            onlya = ak.difference(both)
+            onlyb = bk.difference(both)
+            mp = []
+            if onlya:
+                mp.append('only in a {!r}'.format(sorted(onlya)))
+            if onlyb:
+                mp.append('only in b {!r}'.format(sorted(onlyb)))
+            msg.append(', '.join(mp))
+            return False
+        for k,av in a.items():
+            if path is not None and msg is not None:
+                subpath = path + (k,)
+            else:
+                subpath = None
+            if not deepeq(av, b.get(k), subpath, msg):
+                if msg is not None:
+                    msg.append('at {!r}'.format(subpath))
+                return False
+        return True
+    if isinstance(a, list):
+        if not isinstance(b, list):
+            return False
+        if len(a) != len(b):
+            return False
+        for va,vb in zip(a,b):
+            if not deepeq(va,vb,path,msg):
+                if msg is not None:
+                    msg.append('{!r} != {!r}'.format(va,vb))
+                return False
+        return True
+    return a == b

@@ -134,15 +134,19 @@ func appRewind(account *models.Account, txnrow *idb.TxnRow, stxn *types.SignedTx
 		}
 	}
 
+	var lsa []models.ApplicationLocalState
 	var ls models.ApplicationLocalState
 	var lsi int
 	existingLocalState := false
 	lsSet := false
 	// find the local app state for this txn
-	for lsi, ls = range *account.AppsLocalState {
-		if atypes.AppIndex(ls.Id) == stxn.Txn.ApplicationID {
-			existingLocalState = true
-			break
+	if account.AppsLocalState != nil {
+		lsa = *account.AppsLocalState
+		for lsi, ls = range lsa {
+			if atypes.AppIndex(ls.Id) == stxn.Txn.ApplicationID {
+				existingLocalState = true
+				break
+			}
 		}
 	}
 	// for each local delta, if it applies to _this_ account, apply it
@@ -166,9 +170,11 @@ func appRewind(account *models.Account, txnrow *idb.TxnRow, stxn *types.SignedTx
 	if !lsSet {
 		// nothing happened
 	} else if existingLocalState {
-		(*account.AppsLocalState)[lsi] = ls
+		lsa[lsi] = ls
+		account.AppsLocalState = &lsa
 	} else {
-		(*account.AppsLocalState) = append((*account.AppsLocalState), ls)
+		lsa = append(lsa, ls)
+		account.AppsLocalState = &lsa
 	}
 	//log.Info("TODO WRITEME appRewind", string(idb.JsonOneLine(txnrow.Extra.GlobalReverseDelta))) //, string(idb.JsonOneLine(txnrow.Extra.LocalReverseDelta)))
 	return nil
