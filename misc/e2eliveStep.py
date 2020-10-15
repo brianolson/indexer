@@ -37,6 +37,7 @@ class e2elivestepper:
         self.indexer_bin = None
         self.psqlstring = None
         self.indexerout = None
+        self.genesis = None
 
     def main(self):
         self.start = time.time()
@@ -107,9 +108,15 @@ class e2elivestepper:
         xrun(['goal', 'network', 'start', '-r', self.tempnet])
         atexitrun(['goal', 'network', 'stop', '-r', self.tempnet])
 
+    def read_genesis(self, algoddir):
+        path = os.path.join(algoddir, 'genesis.json')
+        with open(path, 'r') as fin:
+            self.genesis = json.load(fin)
+
     def start_indexer(self):
         self.psqlstring = ensure_test_db(self.args.connection_string, self.args.keep_temps)
         algoddir = os.path.join(self.tempnet, 'Primary')
+        self.read_genesis(algoddir)
         aiport = self.args.indexer_port or random.randint(4000,30000)
         self.indexer_bin = find_indexer(self.args.indexer_bin)
         cmd = [self.indexer_bin, 'daemon', '-P', self.psqlstring, '--dev-mode', '--server', ':{}'.format(aiport), '--no-algod']
@@ -165,6 +172,7 @@ class e2elivestepper:
 
     def validate_forward_reverse(self):
         errcount = 0
+        special_addrs = set([self.genesis['fees'], self.genesis['rwd']])
         for xround in range(self.lastblock,0,-1):
             arurl = self.accountsurl + "?round={}".format(xround)
             logger.debug('GET %r', arurl)
@@ -185,6 +193,8 @@ class e2elivestepper:
                     if ra.get('amount', 0) == 0:
                         continue
                     addr = ra['address']
+                    if addr in special_addrs:
+                        continue
                     fa = fbya.pop(addr, None)
                     if fa is None:
                         logger.error('round=%d reverse but not forward: %r', xround, ra)

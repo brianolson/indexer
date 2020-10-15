@@ -1027,15 +1027,19 @@ ON CONFLICT (addr, assetid) DO UPDATE SET amount = account_asset.amount + EXCLUD
 		reverseDeltas := make([]alrTmp, 0, len(updates.AppLocalDeltas))
 
 		for _, ald := range updates.AppLocalDeltas {
-			if ald.OnCompletion == atypes.CloseOutOC || ald.OnCompletion == atypes.ClearStateOC {
-				droplocals = append(droplocals,
-					[]interface{}{ald.Address, ald.AppIndex},
-				)
-				continue
-			}
 			localstate, err := db.getDirtyAppLocalState(ald.Address, ald.AppIndex, dirty, getlocal)
 			if err != nil {
 				return err
+			}
+			var reverseDelta idb.AppReverseDelta
+			if ald.OnCompletion == atypes.CloseOutOC || ald.OnCompletion == atypes.ClearStateOC {
+				// forward process: delete state
+				droplocals = append(droplocals,
+					[]interface{}{ald.Address, ald.AppIndex},
+				)
+				// reverse process: store full state as reverse delta
+				// TODO: reverseDelta.
+				continue
 			}
 			if ald.OnCompletion == atypes.OptInOC {
 				row := getapp.QueryRow(ald.AppIndex)
@@ -1051,8 +1055,6 @@ ON CONFLICT (addr, assetid) DO UPDATE SET amount = account_asset.amount + EXCLUD
 				}
 				localstate.Schema = app.LocalStateSchema
 			}
-
-			var reverseDelta idb.AppReverseDelta
 
 			for key, vd := range ald.Delta {
 				err = applyKeyValueDelta(&localstate.KeyValue, []byte(key), vd, &reverseDelta)
